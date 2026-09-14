@@ -445,7 +445,7 @@ require $is_admin ? 'admin_header.php' : 'supervisor_header.php';
                                 </td>
                                 <td class="px-5 py-4 whitespace-nowrap text-center">
                                     <?php if ($row['capture_masuk'] || $row['capture_pulang']): ?>
-                                        <button type="button" onclick="openCaptureModal(this)" data-id="<?= (int)$row['id'] ?>" data-nama="<?= htmlspecialchars($row['nama_karyawan'], ENT_QUOTES, 'UTF-8') ?>" data-tanggal="<?= htmlspecialchars($row['tanggal'], ENT_QUOTES, 'UTF-8') ?>" data-masuk="<?= (int)$row['capture_masuk'] ?>" data-pulang="<?= (int)$row['capture_pulang'] ?>" data-jam-masuk="<?= htmlspecialchars($row['jam_masuk'] ?? '-', ENT_QUOTES, 'UTF-8') ?>" data-jam-pulang="<?= htmlspecialchars($row['jam_pulang'] ?? '-', ENT_QUOTES, 'UTF-8') ?>" class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium bg-fuchsia-50 text-fuchsia-700 border border-fuchsia-200 hover:bg-fuchsia-100 dark:bg-fuchsia-900/30 dark:text-fuchsia-400 dark:border-fuchsia-800/50">
+                                        <button type="button" onclick="openCaptureModal(this)" data-id="<?= (int)$row['id'] ?>" data-nama="<?= htmlspecialchars($row['nama_karyawan'], ENT_QUOTES, 'UTF-8') ?>" data-tanggal="<?= htmlspecialchars($row['tanggal'], ENT_QUOTES, 'UTF-8') ?>" data-masuk="<?= (int)$row['capture_masuk'] ?>" data-pulang="<?= (int)$row['capture_pulang'] ?>" data-jam-masuk="<?= htmlspecialchars($row['jam_masuk'] ?? '-', ENT_QUOTES, 'UTF-8') ?>" data-jam-pulang="<?= htmlspecialchars($row['jam_pulang'] ?? '-', ENT_QUOTES, 'UTF-8') ?>" data-lokasi-masuk="<?= htmlspecialchars($row['lokasi_masuk'] ?? '', ENT_QUOTES, 'UTF-8') ?>" data-lokasi-pulang="<?= htmlspecialchars($row['lokasi_pulang'] ?? '', ENT_QUOTES, 'UTF-8') ?>" class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium bg-fuchsia-50 text-fuchsia-700 border border-fuchsia-200 hover:bg-fuchsia-100 dark:bg-fuchsia-900/30 dark:text-fuchsia-400 dark:border-fuchsia-800/50">
                                             <i class="fa-solid fa-camera"></i> Bukti Foto
                                         </button>
                                     <?php else: ?>
@@ -916,6 +916,9 @@ require $is_admin ? 'admin_header.php' : 'supervisor_header.php';
                 <section><h4 class="font-semibold text-slate-800 dark:text-white"><?= $label ?> <span id="capture-jam-<?= $jenis ?>" class="text-sm font-normal"></span></h4>
                     <a id="capture-link-<?= $jenis ?>" target="_blank" rel="noopener" class="hidden block mt-3" title="Buka foto ukuran penuh"><img id="capture-img-<?= $jenis ?>" alt="Bukti foto <?= strtolower($label) ?>" class="w-full rounded-xl object-contain max-h-80"></a>
                     <p id="capture-empty-<?= $jenis ?>" class="py-8 text-center text-sm text-slate-400">Belum ada foto</p>
+                    <a id="capture-lokasi-<?= $jenis ?>" href="#" target="_blank" rel="noopener" class="hidden items-center gap-1.5 px-3 py-1.5 mt-3 bg-white hover:bg-slate-50 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-medium rounded-lg transition-colors border border-slate-200 dark:border-slate-600 shadow-sm">
+                        <i class="fa-solid fa-map-location-dot text-brand-500"></i> Lihat Lokasi Absen
+                    </a>
                 </section>
             <?php endforeach; ?>
         </div>
@@ -952,12 +955,22 @@ function openCaptureModal(button) {
         const link = document.getElementById('capture-link-' + jenis);
         const img = document.getElementById('capture-img-' + jenis);
         const empty = document.getElementById('capture-empty-' + jenis);
+        const lokasiButton = document.getElementById('capture-lokasi-' + jenis);
+        const lokasi = data[jenis === 'masuk' ? 'lokasiMasuk' : 'lokasiPulang'];
         document.getElementById('capture-jam-' + jenis).textContent = data[jenis === 'masuk' ? 'jamMasuk' : 'jamPulang'] || '-';
         img.removeAttribute('src');
         link.removeAttribute('href');
         link.classList.add('hidden');
         empty.textContent = 'Belum ada foto';
         empty.classList.remove('hidden');
+        lokasiButton.removeAttribute('href');
+        lokasiButton.classList.add('hidden');
+        lokasiButton.classList.remove('inline-flex');
+        if (lokasi && lokasi !== 'Lokasi tidak terdeteksi') {
+            lokasiButton.href = 'https://www.google.com/maps?q=' + encodeURIComponent(lokasi);
+            lokasiButton.classList.remove('hidden');
+            lokasiButton.classList.add('inline-flex');
+        }
         if (data[jenis] === '1') {
             const url = 'foto_capture_absensi.php?id=' + encodeURIComponent(data.id) + '&jenis=' + jenis;
             img.onerror = () => {

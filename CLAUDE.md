@@ -45,7 +45,7 @@ It also pulls in `izin_functions.php` (leave-request domain logic) and `kalender
 - Face verification requires a pre-registered `face_descriptor` on the `users` row and a submitted `face_confidence` ≥ `$MIN_FACE_CONFIDENCE` (62.0).
 - "Dinas Luar" (off-site duty) check-ins are recorded with keterangan `Pending Dinas` and require admin approval (`proses_persetujuan_dinas.php`) before being finalized as `Dinas Luar`.
 - Same-day check-in/check-out is one row per employee per date in `absensi`; the handler first checks whether today's row already exists (`jam_masuk` set) to decide masuk vs pulang branch, uses a duplicate-submission guard (10s window) and a `FOR UPDATE` row lock inside a transaction on insert to avoid double check-ins.
-- Late arrival (`status_masuk = 'Terlambat'`) is computed by comparing check-in time against `jam_kerja` rules for the employee's `id_cabang`, picking the closest shift rule when multiple exist.
+- Late arrival (`status_masuk = 'Terlambat'`) is computed by comparing check-in time against `jam_kerja` rules for the employee's `id_cabang`, picking the closest shift rule when multiple exist. Grace periods and tiered deduction rates can be configured per branch on `admin_detail_cabang.php`; branch overrides are stored as `c{id}_keterlambatan_*` keys in `system_settings`, with the legacy global keys/defaults as fallback.
 - Checking out later than the matched shift's `jam_pulang` is treated as overtime and requires an uploaded photo + reason (`alasan_pulang`/`foto_pulang`) before the checkout is accepted.
 - All responses go through `outputJSON()` which clears the output buffer first (defensive against stray warnings corrupting the JSON) and always `exit`s.
 

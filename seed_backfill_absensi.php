@@ -4,8 +4,9 @@
  * BACKFILL RIWAYAT ABSENSI (karyawan/user yang SUDAH ada)
  * ==========================================
  * Berbeda dari seed_dummy_data.php: skrip ini TIDAK PERNAH membuat cabang,
- * jam kerja, karyawan, atau akun baru - hanya mengisi riwayat absensi untuk
- * karyawan status 'aktif' yang SUDAH ada di database. Dibuat untuk kasus
+ * jam kerja, karyawan, atau akun baru - hanya mengisi riwayat absensi (serta
+ * approval pendamping untuk contoh lembur hari kerja) bagi karyawan status
+ * 'aktif' yang SUDAH ada di database. Dibuat untuk kasus
  * "data karyawan/cabang produksi sudah benar dan lengkap, cuma histori
  * absensinya kosong/berlubang" - supaya dashboard & laporan ada isinya
  * tanpa menyentuh data karyawan/akun sama sekali.
@@ -22,7 +23,10 @@
  * dibedakan dari absensi kiosk sungguhan (badge "Manual" muncul di halaman
  * Histori Absensi) dan diaudit/dikecualikan manual di kemudian hari kalau
  * perlu, mis. dari perhitungan slip gaji untuk bulan yang datanya sengaja
- * di-backfill ini.
+ * di-backfill ini. Variasinya mencakup kolom baru: menit keterlambatan,
+ * pulang cepat disetujui, konversi izin setengah hari, lembur mingguan, dan
+ * lembur hari kerja beserta pengajuan_lembur Disetujui yang diwajibkan oleh
+ * alur perhitungan lembur.
  *
  * KEAMANAN: sama seperti migrate.php/seed_dummy_data.php - wajib login
  * Admin di web, confirm eksplisit (POST + CSRF) sebelum menulis apa pun,
@@ -109,6 +113,7 @@ if ($isCli) {
         echo "\nDRY-RUN selesai. Jalankan dengan --confirm (+ --force-remote bila bukan lokal, --hari=N untuk ubah rentang) untuk benar-benar menulis data.\n";
     } else {
         echo "\nSelesai. Baris absensi baru: {$hasil['absensi']}" . ($hasil['absensi_gagal'] > 0 ? ", gagal: {$hasil['absensi_gagal']}" : "") . ".\n";
+        echo "Pulang cepat disetujui: {$hasil['pulang_cepat']}; konversi izin setengah hari: {$hasil['izin_setengah_hari']}; lembur hari kerja disetujui: {$hasil['lembur_disetujui']}.\n";
     }
     $conn->close();
     exit($ada_error ? 1 : 0);
@@ -154,9 +159,11 @@ $csrf_token = generateCSRFToken();
     <div class="box">
         <h1><?php echo $ada_error ? '⚠️ Backfill selesai dengan error' : ($confirmed ? '✅ Backfill absensi selesai' : '👀 Pratinjau (dry-run)'); ?></h1>
         <p class="sub">
-            Hanya mengisi riwayat absensi untuk karyawan yang SUDAH ada &mdash; tidak pernah membuat
-            cabang, jam kerja, karyawan, atau akun baru. Aman dijalankan berulang kali; tanggal yang
+            Hanya mengisi riwayat absensi dan approval lembur pendamping untuk karyawan yang SUDAH ada
+            &mdash; tidak pernah membuat cabang, jam kerja, karyawan, atau akun baru. Aman dijalankan berulang kali; tanggal yang
             sudah punya data dilewati, tidak pernah menimpa. Hari ini tidak pernah disentuh.
+            Data baru mencakup keterlambatan bertingkat, pulang cepat, izin setengah hari,
+            dan lembur yang konsisten dengan tabel pengajuan lembur.
         </p>
 
         <div class="db-banner <?php echo $info['is_local'] ? 'local' : 'remote'; ?>">
@@ -177,6 +184,9 @@ $csrf_token = generateCSRFToken();
         <div class="banner live">
             Data berhasil ditulis: <b><?php echo $hasil['absensi']; ?></b> baris absensi baru
             <?php if ($hasil['absensi_gagal'] > 0): ?> (<b><?php echo $hasil['absensi_gagal']; ?></b> gagal) <?php endif; ?>.
+            Pulang cepat: <b><?php echo $hasil['pulang_cepat']; ?></b>,
+            izin setengah hari: <b><?php echo $hasil['izin_setengah_hari']; ?></b>,
+            lembur hari kerja disetujui: <b><?php echo $hasil['lembur_disetujui']; ?></b>.
         </div>
         <?php endif; ?>
 

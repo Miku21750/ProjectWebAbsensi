@@ -244,6 +244,7 @@ Rather than each management page having its own save/delete script, almost all A
 | `owner_detail_cabang.php` | Owner: drill-down into one branch's employees/summary. |
 | `data_jabatan.php` | Position CRUD — name + default allowance. |
 | `jam_kerja.php` | Shift-rule CRUD per branch (clock-in cutoff, scheduled clock-out). |
+| `admin_detail_cabang.php` | Admin branch detail and per-branch lateness grace period/tiered deduction settings. |
 | `data_karyawan.php` | Employee CRUD (add/edit/soft-deactivate/hard-delete), including the "arsip" (archived/inactive) view. |
 | `owner_data_karyawan.php` | Owner's read-only employee list/browser. |
 | `lihat_karyawan_cabang.php` | Admin: employee roster scoped to one branch. |

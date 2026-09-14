@@ -59,10 +59,41 @@ function lokasiAcak($koordinat, $jakarta_fallback) {
  *   penghitungan slip gaji) - fungsi ini sendiri TIDAK mengecualikannya
  *   secara otomatis dari perhitungan mana pun.
  *
- * @return array{absensi:int, absensi_gagal:int}
+ * Selain baris absensi, fungsi ini membuat pengajuan_lembur Disetujui untuk
+ * contoh lembur di hari kerja. Itu diperlukan karena lembur hari kerja baru
+ * sah/dihitung oleh lembur_functions.php bila ada approval yang mencakup
+ * tanggal absensinya. Metadata lain hanya diisi saat relevan: izin pulang
+ * cepat untuk kepulangan dini, serta kolom konversi untuk kasus lupa absen
+ * masuk yang sudah dijadikan izin setengah hari.
+ *
+ * @return array{absensi:int, absensi_gagal:int, pulang_cepat:int, izin_setengah_hari:int, lembur_disetujui:int}
  */
 function backfillRiwayatAbsensi($conn, $confirmed, MigrationLog $log, string $sumberLabel, int $hariKeBelakang = 90, ?array $idKaryawanFilter = null) {
-    $hasil = ['absensi' => 0, 'absensi_gagal' => 0];
+    $hasil = [
+        'absensi' => 0,
+        'absensi_gagal' => 0,
+        'pulang_cepat' => 0,
+        'izin_setengah_hari' => 0,
+        'lembur_disetujui' => 0,
+    ];
+
+    $kolom_wajib = [
+        'menit_terlambat', 'izin_pulang_cepat', 'alasan_pulang_cepat',
+        'dikonversi_izin_setengah_hari', 'dikonversi_oleh', 'dikonversi_at',
+    ];
+    $kolom_hilang = array_values(array_filter($kolom_wajib, function ($kolom) use ($conn) {
+        return !kolomAda($conn, 'absensi', $kolom);
+    }));
+    if (!empty($kolom_hilang) || !tabelAda($conn, 'pengajuan_lembur')) {
+        $detail = !empty($kolom_hilang)
+            ? ' Kolom absensi yang belum ada: <code>' . implode('</code>, <code>', $kolom_hilang) . '</code>.'
+            : '';
+        if (!tabelAda($conn, 'pengajuan_lembur')) {
+            $detail .= ' Tabel <code>pengajuan_lembur</code> belum ada.';
+        }
+        $log->error('Schema belum lengkap untuk backfill versi terbaru.' . $detail . ' Jalankan <code>migrate.php</code> terlebih dahulu.');
+        return $hasil;
+    }
 
     $hari_kerja = array_map('intval', explode(',', ambilSettingSeed($conn, 'hari_kerja', '1,2,3,4,5')));
     $hari_overtime = array_map('intval', explode(',', ambilSettingSeed($conn, 'hari_overtime', '6')));
@@ -143,9 +174,9 @@ function backfillRiwayatAbsensi($conn, $confirmed, MigrationLog $log, string $su
     // Kebijakan keterlambatan bertingkat SAAT INI (system_settings, lihat
     // keterlambatan_functions.php) - dipakai supaya menit_terlambat & status
     // yang di-generate di sini konsisten dengan proses_absen.php yang asli
-    // dan ikut berubah kalau adminnya mengubah grace/tier di data_hari_libur.php,
+    // dan ikut berubah kalau adminnya mengubah grace/tier di detail cabang,
     // bukan rentang menit yang di-hardcode lepas dari pengaturan.
-    $pengaturan_telat = getPengaturanKeterlambatan($conn);
+    $pengaturan_telat_cabang = [];
 
     if (!$confirmed) {
         $hariKerjaCount = 0;
@@ -158,7 +189,8 @@ function backfillRiwayatAbsensi($conn, $confirmed, MigrationLog $log, string $su
         }
         $log->warn("[Dry-run] Akan menghasilkan riwayat absensi ~{$hariKerjaCount} hari kerja x " . count($roster)
             . " karyawan aktif (tanggal {$tanggal_awal} s.d. {$tanggal_akhir}, tidak termasuk hari ini), "
-            . "melewati tanggal yang sudah punya data.");
+            . "melewati tanggal yang sudah punya data. Variasi mencakup menit keterlambatan, izin pulang cepat "
+            . "yang disetujui, konversi izin setengah hari, lembur mingguan, dan lembur hari kerja yang disetujui.");
         return $hasil;
     }
 
@@ -177,18 +209,51 @@ function backfillRiwayatAbsensi($conn, $confirmed, MigrationLog $log, string $su
         "INSERT INTO absensi
             (id_karyawan, tanggal, jam_masuk, jam_pulang, lokasi_masuk, lokasi_pulang,
              keterangan, status_masuk, menit_terlambat, face_verified, face_confidence, input_method,
-             is_manual_entry, manual_entry_by)
-         VALUES (?, ?, ?, ?, ?, ?, 'Hadir', ?, ?, 1, ?, 'qr_scan', 1, ?)"
+             is_manual_entry, manual_entry_by, alasan_pulang, izin_pulang_cepat, alasan_pulang_cepat)
+         VALUES (?, ?, ?, ?, ?, ?, 'Hadir', ?, ?, 1, ?, 'qr_scan', 1, ?, ?, ?, ?)"
     );
     $stmt_khusus = $conn->prepare(
         "INSERT INTO absensi (id_karyawan, tanggal, keterangan, is_manual_entry, manual_entry_by)
          VALUES (?, ?, ?, 1, ?)"
     );
+    $stmt_setengah_hari = $conn->prepare(
+        "INSERT INTO absensi
+            (id_karyawan, tanggal, jam_pulang, lokasi_pulang, keterangan, alasan, waktu_alasan,
+             status_masuk, face_verified, face_confidence, input_method, is_manual_entry, manual_entry_by,
+             dikonversi_izin_setengah_hari, dikonversi_oleh, dikonversi_at)
+         VALUES (?, ?, ?, ?, 'Hadir', ?, ?, NULL, 1, ?, 'qr_scan', 1, ?, 1, ?, ?)"
+    );
+    $stmt_lembur = $conn->prepare(
+        "INSERT INTO pengajuan_lembur
+            (id_karyawan, tanggal_mulai, tanggal_selesai, keperluan, status, id_cabang,
+             reviewed_by, reviewed_at, catatan_reviewer, created_at, updated_at)
+         VALUES (?, ?, ?, ?, 'Disetujui', ?, ?, ?, ?, ?, ?)"
+    );
+    $stmt_cek_lembur = $conn->prepare(
+        "SELECT status FROM pengajuan_lembur
+         WHERE id_karyawan = ? AND ? BETWEEN tanggal_mulai AND tanggal_selesai
+           AND status IN ('Pending', 'Disetujui')
+         ORDER BY FIELD(status, 'Disetujui', 'Pending') LIMIT 1"
+    );
+
+    // Reviewer boleh NULL bila database memang tidak punya akun approver.
+    // Bila ada, pakai akun approver pertama agar histori approval dummy tetap
+    // menyerupai data dari alur aplikasi yang sebenarnya.
+    $reviewer_id = null;
+    $res_reviewer = $conn->query("SELECT id FROM users WHERE role IN ('admin', 'owner') AND is_active = 1 ORDER BY FIELD(role, 'admin', 'owner'), id LIMIT 1");
+    if ($res_reviewer && ($row_reviewer = $res_reviewer->fetch_assoc())) {
+        $reviewer_id = (int)$row_reviewer['id'];
+    }
 
     $conn->begin_transaction();
     try {
         foreach ($roster as $r) {
             $id_karyawan = $r['id_karyawan'];
+            $id_cabang_karyawan = (int)$r['id_cabang'];
+            if (!isset($pengaturan_telat_cabang[$id_cabang_karyawan])) {
+                $pengaturan_telat_cabang[$id_cabang_karyawan] = getPengaturanKeterlambatan($conn, $id_cabang_karyawan);
+            }
+            $pengaturan_telat = $pengaturan_telat_cabang[$id_cabang_karyawan];
             $shift = $jam_kerja_cabang[$r['id_cabang']] ?? ['masuk_akhir' => '08:00:00', 'pulang' => '17:00:00'];
             $koor = $koordinat_cabang[$r['id_cabang']] ?? null;
 
@@ -207,7 +272,7 @@ function backfillRiwayatAbsensi($conn, $confirmed, MigrationLog $log, string $su
 
                 if (in_array($wd, $hari_kerja, true)) {
                     // Hari kerja normal: distribusi status
-                    if ($roll <= 78) {
+                    if ($roll <= 75) {
                         // Hadir (sebagian Terlambat)
                         $masuk_akhir_detik = jamKeDetik($shift['masuk_akhir']);
                         $pulang_detik = jamKeDetik($shift['pulang']);
@@ -241,18 +306,102 @@ function backfillRiwayatAbsensi($conn, $confirmed, MigrationLog $log, string $su
                             }
                         }
                         $status_masuk = apakahTerlambat($menit_terlambat ?? 0, $pengaturan_telat) ? 'Terlambat' : 'Tepat Waktu';
-                        $jam_pulang = detikKeJam($pulang_detik + mt_rand(-600, 2400)); // -10 menit s.d. +40 menit
+                        $izin_pulang_cepat = null;
+                        $alasan_pulang_cepat = null;
+                        $alasan_pulang = null;
+                        $buat_lembur_disetujui = false;
+                        $lembur_disetujui = false;
+
+                        $variasi_pulang = mt_rand(1, 100);
+                        if ($variasi_pulang <= 8) {
+                            // Pulang setelah 3-5 jam kerja, selalu sebelum akhir
+                            // shift. Status Disetujui + alasan harus berpasangan;
+                            // jangan membuat status Pending historis yang tidak
+                            // mungkin lagi ditindaklanjuti reviewer.
+                            $pulang_cepat_detik = min(
+                                $pulang_detik - 1800,
+                                jamKeDetik($jam_masuk) + mt_rand(3 * 3600, 5 * 3600)
+                            );
+                            $jam_pulang = detikKeJam($pulang_cepat_detik);
+                            $izin_pulang_cepat = 'Disetujui';
+                            $alasan_pulang_cepat = 'Keperluan keluarga (data backfill)';
+                            $alasan_pulang = $alasan_pulang_cepat;
+                        } elseif ($variasi_pulang <= 20) {
+                            // Lembur hari kerja wajib punya approval pendamping.
+                            // Hormati pengajuan nyata yang mungkin sudah meliputi
+                            // tanggal kosong ini: pakai approval Disetujui yang
+                            // ada, atau jangan membuat lembur bila masih Pending.
+                            $stmt_cek_lembur->bind_param("ss", $id_karyawan, $tanggal);
+                            if (!$stmt_cek_lembur->execute()) {
+                                throw new RuntimeException('Gagal memeriksa pengajuan lembur yang sudah ada: ' . $stmt_cek_lembur->error);
+                            }
+                            $res_cek_lembur = $stmt_cek_lembur->get_result();
+                            $lembur_ada = $res_cek_lembur->fetch_assoc();
+                            $res_cek_lembur->free();
+                            if (!$lembur_ada || $lembur_ada['status'] === 'Disetujui') {
+                                $jam_pulang = detikKeJam($pulang_detik + mt_rand(60, 240) * 60);
+                                $lembur_disetujui = true;
+                                $buat_lembur_disetujui = !$lembur_ada;
+                            } else {
+                                $jam_pulang = detikKeJam($pulang_detik + mt_rand(-600, 2400));
+                            }
+                        } else {
+                            $jam_pulang = detikKeJam($pulang_detik + mt_rand(-600, 2400)); // -10 menit s.d. +40 menit
+                        }
 
                         $lokasi_masuk = lokasiAcak($koor, $JAKARTA_FALLBACK);
                         $lokasi_pulang = lokasiAcak($koor, $JAKARTA_FALLBACK);
                         $confidence = round(mt_rand(6500, 9800) / 100, 2);
 
                         $stmt_hadir->bind_param(
-                            "sssssssids",
+                            "sssssssidssss",
                             $id_karyawan, $tanggal, $jam_masuk, $jam_pulang,
-                            $lokasi_masuk, $lokasi_pulang, $status_masuk, $menit_terlambat, $confidence, $sumberLabel
+                            $lokasi_masuk, $lokasi_pulang, $status_masuk, $menit_terlambat, $confidence, $sumberLabel,
+                            $alasan_pulang, $izin_pulang_cepat, $alasan_pulang_cepat
                         );
                         $ok = $stmt_hadir->execute();
+                        if ($ok && $izin_pulang_cepat === 'Disetujui') {
+                            $hasil['pulang_cepat']++;
+                        }
+                        if ($ok && $lembur_disetujui) {
+                            if ($buat_lembur_disetujui) {
+                                $keperluan_lembur = 'Penyelesaian pekerjaan operasional (data backfill)';
+                                $catatan_reviewer = 'Disetujui otomatis oleh seed backfill untuk data demo.';
+                                $diajukan_at = date('Y-m-d 16:00:00', strtotime($tanggal . ' -1 day'));
+                                $reviewed_at = $tanggal . ' 07:00:00';
+                                $stmt_lembur->bind_param(
+                                    "ssssiissss",
+                                    $id_karyawan, $tanggal, $tanggal, $keperluan_lembur,
+                                    $id_cabang_karyawan, $reviewer_id, $reviewed_at, $catatan_reviewer,
+                                    $diajukan_at, $reviewed_at
+                                );
+                                if (!$stmt_lembur->execute()) {
+                                    throw new RuntimeException('Gagal membuat approval lembur pendamping: ' . $stmt_lembur->error);
+                                }
+                            }
+                            $hasil['lembur_disetujui']++;
+                        }
+                    } else if ($roll <= 78) {
+                        // Karyawan hanya absen pulang, lalu admin mengonversinya
+                        // menjadi izin setengah hari (migrasi 009). jam_masuk dan
+                        // status_masuk memang NULL supaya fakta lupa check-in tidak
+                        // disamarkan menjadi Tepat Waktu.
+                        $jam_pulang = detikKeJam(jamKeDetik($shift['pulang']) + mt_rand(-600, 600));
+                        $lokasi_pulang = lokasiAcak($koor, $JAKARTA_FALLBACK);
+                        $alasan_lupa_masuk = 'Lupa melakukan absen masuk (data backfill)';
+                        $waktu_alasan = $tanggal . ' ' . $jam_pulang;
+                        $confidence = round(mt_rand(6500, 9800) / 100, 2);
+                        $dikonversi_at = $tanggal . ' 18:00:00';
+                        $stmt_setengah_hari->bind_param(
+                            "ssssssdsis",
+                            $id_karyawan, $tanggal, $jam_pulang, $lokasi_pulang,
+                            $alasan_lupa_masuk, $waktu_alasan, $confidence, $sumberLabel,
+                            $reviewer_id, $dikonversi_at
+                        );
+                        $ok = $stmt_setengah_hari->execute();
+                        if ($ok) {
+                            $hasil['izin_setengah_hari']++;
+                        }
                     } else if ($roll <= 84) {
                         $ket = 'Sakit';
                         $stmt_khusus->bind_param("ssss", $id_karyawan, $tanggal, $ket, $sumberLabel);
@@ -283,15 +432,19 @@ function backfillRiwayatAbsensi($conn, $confirmed, MigrationLog $log, string $su
                         $jam_pulang = detikKeJam($masuk_detik + $durasi_detik);
                         $status_masuk = 'Tepat Waktu'; // Sabtu tidak dihitung Terlambat
                         $menit_terlambat = null; // idem - hari overtime tidak punya jam masuk baku untuk dibandingkan
+                        $alasan_pulang = null;
+                        $izin_pulang_cepat = null;
+                        $alasan_pulang_cepat = null;
 
                         $lokasi_masuk = lokasiAcak($koor, $JAKARTA_FALLBACK);
                         $lokasi_pulang = lokasiAcak($koor, $JAKARTA_FALLBACK);
                         $confidence = round(mt_rand(6500, 9800) / 100, 2);
 
                         $stmt_hadir->bind_param(
-                            "sssssssids",
+                            "sssssssidssss",
                             $id_karyawan, $tanggal, $jam_masuk, $jam_pulang,
-                            $lokasi_masuk, $lokasi_pulang, $status_masuk, $menit_terlambat, $confidence, $sumberLabel
+                            $lokasi_masuk, $lokasi_pulang, $status_masuk, $menit_terlambat, $confidence, $sumberLabel,
+                            $alasan_pulang, $izin_pulang_cepat, $alasan_pulang_cepat
                         );
                         if ($stmt_hadir->execute()) { $hasil['absensi']++; } else { $hasil['absensi_gagal']++; }
                     }
@@ -301,16 +454,23 @@ function backfillRiwayatAbsensi($conn, $confirmed, MigrationLog $log, string $su
         }
         $conn->commit();
         $log->ok("Riwayat absensi berhasil dibuat: <b>{$hasil['absensi']}</b> baris baru untuk " . count($roster)
-            . " karyawan aktif (tanggal {$tanggal_awal} s.d. {$tanggal_akhir}, tidak termasuk hari ini).");
+            . " karyawan aktif (tanggal {$tanggal_awal} s.d. {$tanggal_akhir}, tidak termasuk hari ini). "
+            . "Rincian fitur baru: <b>{$hasil['pulang_cepat']}</b> pulang cepat disetujui, "
+            . "<b>{$hasil['izin_setengah_hari']}</b> konversi izin setengah hari, dan "
+            . "<b>{$hasil['lembur_disetujui']}</b> lembur hari kerja disetujui.");
         if ($hasil['absensi_gagal'] > 0) {
             $log->error("{$hasil['absensi_gagal']} baris absensi GAGAL diinsert (lihat error mysqli): " . $conn->error);
         }
     } catch (Exception $e) {
         $conn->rollback();
+        $hasil = array_fill_keys(array_keys($hasil), 0);
         $log->error("Gagal generate absensi, rollback: " . $e->getMessage());
     }
     $stmt_hadir->close();
     $stmt_khusus->close();
+    $stmt_setengah_hari->close();
+    $stmt_lembur->close();
+    $stmt_cek_lembur->close();
 
     return $hasil;
 }

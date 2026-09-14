@@ -20,7 +20,9 @@
  *   5. Riwayat absensi ~90 hari ke belakang untuk SEMUA karyawan status
  *      'aktif' (termasuk yang sudah ada sebelumnya di DB), dengan status
  *      bervariasi: Hadir (termasuk Terlambat), Sakit, Izin, Cuti, Alpha,
- *      dan lembur Sabtu untuk jabatan yang eligible. Tanggal yang SUDAH
+ *      pulang cepat disetujui, konversi izin setengah hari, lembur Sabtu
+ *      untuk jabatan yang eligible, serta lembur hari kerja beserta approval
+ *      pendampingnya. Tanggal yang SUDAH
  *      punya baris absensi (mis. hasil approval pengajuan_izin) dilewati,
  *      jadi tidak pernah menduplikasi/menimpa data asli.
  *
