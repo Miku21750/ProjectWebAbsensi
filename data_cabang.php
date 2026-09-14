@@ -81,6 +81,9 @@ $result = $conn->query($sql);
                             </td>
                             <td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                                 <div class="flex items-center justify-end gap-2 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
+                                    <a href="admin_detail_cabang.php?id=<?php echo $row['id']; ?>" class="p-2 text-amber-600 hover:bg-amber-50 rounded-lg dark:text-amber-400 dark:hover:bg-amber-900/30 transition-colors" title="Detail dan Aturan Keterlambatan">
+                                        <i class="fa-solid fa-sliders"></i>
+                                    </a>
                                     <?php if(!empty($row['latitude']) && !empty($row['longitude'])): ?>
                                         <a href="https://www.google.com/maps?q=<?php echo $row['latitude']; ?>,<?php echo $row['longitude']; ?>" target="_blank" class="p-2 text-emerald-600 hover:bg-emerald-50 rounded-lg dark:text-emerald-400 dark:hover:bg-emerald-900/30 transition-colors" title="Lihat di Google Maps">
                                             <i class="fa-solid fa-map-marked-alt"></i>

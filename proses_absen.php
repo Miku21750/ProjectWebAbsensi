@@ -558,7 +558,7 @@ try {
                     $selisih_menit = (int)round((strtotime($waktu) - strtotime($target_rule['jam_masuk_akhir'])) / 60);
                     if ($selisih_menit > 0) {
                         $menit_terlambat = $selisih_menit;
-                        if (apakahTerlambat($menit_terlambat, null, $conn)) {
+                        if (apakahTerlambat($menit_terlambat, getPengaturanKeterlambatan($conn, $id_cabang))) {
                             $status_masuk = 'Terlambat';
                         }
                     }

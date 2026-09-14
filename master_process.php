@@ -11,6 +11,74 @@ if (!isset($_SESSION['user_id']) || $_SESSION['role'] != 'admin') {
 mysqli_report(MYSQLI_REPORT_ERROR | MYSQLI_REPORT_STRICT);
 
 // --- PROSES JAM KERJA ---
+if (isset($_POST['simpan_pengaturan_keterlambatan'])) {
+    verifyCSRFToken($_POST['csrf_token'] ?? '');
+
+    $id_cabang = filter_input(INPUT_POST, 'id_cabang', FILTER_VALIDATE_INT);
+    $grace = filter_input(INPUT_POST, 'grace_menit', FILTER_VALIDATE_INT);
+    $tier1_durasi = filter_input(INPUT_POST, 'tier1_durasi_menit', FILTER_VALIDATE_INT);
+    $tier2_interval = filter_input(INPUT_POST, 'tier2_interval_menit', FILTER_VALIDATE_INT);
+    $tier1_rate = filter_input(INPUT_POST, 'tier1_rate', FILTER_VALIDATE_FLOAT);
+    $tier2_rate = filter_input(INPUT_POST, 'tier2_rate', FILTER_VALIDATE_FLOAT);
+    $maks_jam = filter_input(INPUT_POST, 'maks_jam', FILTER_VALIDATE_FLOAT);
+
+    $valid = $id_cabang && $grace !== false && $grace >= 0 && $grace <= 1440
+        && $tier1_durasi !== false && $tier1_durasi >= 1 && $tier1_durasi <= 1440
+        && $tier2_interval !== false && $tier2_interval >= 1 && $tier2_interval <= 1440
+        && $tier1_rate !== false && $tier1_rate >= 0
+        && $tier2_rate !== false && $tier2_rate >= 0
+        && $maks_jam !== false && $maks_jam > 0 && $maks_jam <= 24
+        && ($maks_jam * 60) > $grace;
+
+    $stmt_cabang = $conn->prepare("SELECT id FROM cabang WHERE id = ?");
+    $stmt_cabang->bind_param('i', $id_cabang);
+    $stmt_cabang->execute();
+    $cabang_ada = (bool)$stmt_cabang->get_result()->fetch_assoc();
+    $stmt_cabang->close();
+
+    if (!$valid || !$cabang_ada) {
+        $_SESSION['error_message'] = 'Pengaturan keterlambatan tidak valid. Periksa kembali seluruh nilai yang diisi.';
+        header('Location: ' . ($id_cabang ? 'admin_detail_cabang.php?id=' . (int)$id_cabang : 'data_cabang.php'));
+        exit();
+    }
+
+    $nilai = [
+        'grace_menit' => (string)$grace,
+        'tier1_durasi_menit' => (string)$tier1_durasi,
+        'tier1_rate' => (string)$tier1_rate,
+        'tier2_interval_menit' => (string)$tier2_interval,
+        'tier2_rate' => (string)$tier2_rate,
+        'maks_jam' => (string)$maks_jam,
+    ];
+    $deskripsi = [
+        'grace_menit' => 'Dispensasi keterlambatan cabang (menit)',
+        'tier1_durasi_menit' => 'Durasi tier pertama keterlambatan cabang (menit)',
+        'tier1_rate' => 'Potongan flat tier pertama keterlambatan cabang (Rp)',
+        'tier2_interval_menit' => 'Interval tier kedua keterlambatan cabang (menit)',
+        'tier2_rate' => 'Potongan per interval tier kedua keterlambatan cabang (Rp)',
+        'maks_jam' => 'Batas maksimal keterlambatan yang dihitung untuk cabang (jam)',
+    ];
+    $keys = getKunciPengaturanKeterlambatan();
+
+    try {
+        $conn->begin_transaction();
+        foreach ($nilai as $nama => $value) {
+            $key = getKunciPengaturanKeterlambatanCabang($id_cabang, $keys[$nama]);
+            if (!setPengaturan($conn, $key, $value, $deskripsi[$nama])) {
+                throw new RuntimeException('Gagal menyimpan ' . $nama);
+            }
+        }
+        $conn->commit();
+        $_SESSION['success_message'] = 'Pengaturan keterlambatan cabang berhasil disimpan!';
+    } catch (Throwable $e) {
+        $conn->rollback();
+        $_SESSION['error_message'] = 'Gagal menyimpan pengaturan keterlambatan: ' . $e->getMessage();
+    }
+
+    header('Location: admin_detail_cabang.php?id=' . (int)$id_cabang);
+    exit();
+}
+
 if (isset($_POST['tambah_jam_kerja'])) {
     $id_cabang = intval($_POST['id_cabang']);
     $nama_shift = $conn->real_escape_string($_POST['nama_shift']);
