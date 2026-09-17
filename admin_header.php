@@ -84,8 +84,25 @@ if ($res_pengajuan_izin) {
 }
 $pending_izin_count = hitungPendingIzin($conn);
 
-$actionable_notif_count = count($notif_dinas) + count($notif_pulang_cepat) + $pending_izin_count;
-$total_notif = count($notif_dinas) + count($notif_pulang_cepat) + count($notif_izin) + $pending_izin_count;
+// Pengajuan lembur yang menunggu review (admin melihat semua cabang)
+$notif_pengajuan_lembur = [];
+$res_pengajuan_lembur = $conn->query("SELECT p.id, p.tanggal_mulai, p.tanggal_selesai, p.keperluan,
+                                            k.nama_karyawan, c.nama_cabang
+                                     FROM pengajuan_lembur p
+                                     JOIN karyawan k ON p.id_karyawan = k.id_karyawan
+                                     LEFT JOIN cabang c ON k.id_cabang = c.id
+                                     WHERE p.status = 'Pending'
+                                     ORDER BY p.created_at ASC
+                                     LIMIT 20");
+if ($res_pengajuan_lembur) {
+    while ($row = $res_pengajuan_lembur->fetch_assoc()) {
+        $notif_pengajuan_lembur[] = $row;
+    }
+}
+$pending_lembur_count = hitungPendingLembur($conn);
+
+$actionable_notif_count = count($notif_dinas) + count($notif_pulang_cepat) + $pending_izin_count + $pending_lembur_count;
+$total_notif = count($notif_dinas) + count($notif_pulang_cepat) + count($notif_izin) + $pending_izin_count + $pending_lembur_count;
 // ------------------------------
 ?>
 <!DOCTYPE html>
@@ -454,6 +471,25 @@ $total_notif = count($notif_dinas) + count($notif_pulang_cepat) + count($notif_i
                                         <i class="fa-regular fa-calendar mr-1"></i>
                                         <?php echo formatRentangTanggal($np['tanggal_mulai'], $np['tanggal_selesai']); ?>
                                         &middot; <?php echo (int)$np['jumlah_hari_kerja']; ?> hari kerja
+                                    </p>
+                                </a>
+                                <?php endforeach; endif; ?>
+
+                                <?php if ($pending_lembur_count > 0): ?>
+                                <div class="px-4 py-2 bg-slate-50 dark:bg-slate-800/50 border-y border-slate-100 dark:border-slate-700/50 sticky top-0 z-10 backdrop-blur-sm">
+                                    <p class="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest">Pengajuan Lembur Menunggu Review</p>
+                                </div>
+                                <?php foreach ($notif_pengajuan_lembur as $nl): ?>
+                                <a href="kelola_pengajuan_lembur.php?status=Pending" class="block p-4 border-b border-slate-100 dark:border-slate-700/50 hover:bg-slate-50 dark:hover:bg-slate-800/30 transition-colors">
+                                    <div class="flex items-center justify-between gap-2 mb-1">
+                                        <p class="text-sm font-bold text-slate-800 dark:text-white truncate"><?php echo htmlspecialchars($nl['nama_karyawan']); ?></p>
+                                        <span class="text-[10px] px-2 py-0.5 rounded-full border font-bold shrink-0 bg-purple-100 text-purple-700 border-purple-200 dark:bg-purple-900/30 dark:text-purple-400 dark:border-purple-800/50">Lembur</span>
+                                    </div>
+                                    <p class="text-xs text-slate-600 dark:text-slate-300 line-clamp-2"><?php echo htmlspecialchars($nl['keperluan']); ?></p>
+                                    <p class="text-[10px] font-medium text-slate-400 mt-2">
+                                        <i class="fa-regular fa-calendar mr-1"></i>
+                                        <?php echo formatRentangTanggal($nl['tanggal_mulai'], $nl['tanggal_selesai']); ?>
+                                        <?php if (!empty($nl['nama_cabang'])): ?>&middot; <?php echo htmlspecialchars($nl['nama_cabang']); ?><?php endif; ?>
                                     </p>
                                 </a>
                                 <?php endforeach; endif; ?>

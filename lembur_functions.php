@@ -18,6 +18,26 @@
 define('LEMBUR_STATUS_VALID', ['Pending', 'Disetujui', 'Ditolak', 'Dibatalkan']);
 
 /**
+ * Hitung pengajuan lembur Pending yang menjadi tanggung jawab reviewer.
+ * null berarti semua cabang (admin/owner); id cabang membatasi supervisor.
+ */
+function hitungPendingLembur($conn, $id_cabang = null) {
+    if ($id_cabang === null) {
+        $res = $conn->query("SELECT COUNT(*) AS jml FROM pengajuan_lembur WHERE status = 'Pending'");
+        return $res ? (int)$res->fetch_assoc()['jml'] : 0;
+    }
+
+    $stmt = $conn->prepare("SELECT COUNT(*) AS jml FROM pengajuan_lembur p
+                            JOIN karyawan k ON p.id_karyawan = k.id_karyawan
+                            WHERE p.status = 'Pending' AND k.id_cabang = ?");
+    $stmt->bind_param("i", $id_cabang);
+    $stmt->execute();
+    $jml = (int)$stmt->get_result()->fetch_assoc()['jml'];
+    $stmt->close();
+    return $jml;
+}
+
+/**
  * Cek pengajuan lembur lain yang rentang tanggalnya bertabrakan (Pending/
  * Disetujui dianggap memblokir) - sama seperti cekTumpangTindihIzin().
  */

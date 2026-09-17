@@ -56,6 +56,22 @@ while ($row = $res_notif->fetch_assoc()) {
 }
 $stmt_notif->close();
 
+$notif_pengajuan_lembur = [];
+$stmt_notif_lembur = $conn->prepare("SELECT p.id, p.tanggal_mulai, p.tanggal_selesai, p.keperluan,
+                                            k.nama_karyawan
+                                     FROM pengajuan_lembur p
+                                     JOIN karyawan k ON p.id_karyawan = k.id_karyawan
+                                     WHERE p.status = 'Pending' AND k.id_cabang = ?
+                                     ORDER BY p.created_at ASC
+                                     LIMIT 20");
+$stmt_notif_lembur->bind_param("i", $cabang_supervisor);
+$stmt_notif_lembur->execute();
+$res_notif_lembur = $stmt_notif_lembur->get_result();
+while ($row = $res_notif_lembur->fetch_assoc()) {
+    $notif_pengajuan_lembur[] = $row;
+}
+$stmt_notif_lembur->close();
+
 $notif_dinas = [];
 $stmt_dinas = $conn->prepare("SELECT a.id, a.tanggal, a.alasan, k.nama_karyawan
                               FROM absensi a
@@ -103,7 +119,8 @@ while ($row = $res_izin_info->fetch_assoc()) {
 }
 $stmt_izin_info->close();
 
-$actionable_notif_count = count($notif_pengajuan) + count($notif_dinas) + count($notif_pulang_cepat);
+$pending_lembur_count = hitungPendingLembur($conn, $cabang_supervisor);
+$actionable_notif_count = count($notif_pengajuan) + count($notif_dinas) + count($notif_pulang_cepat) + $pending_lembur_count;
 $total_notif = $actionable_notif_count + count($notif_izin_info);
 // ------------------------------
 ?>
@@ -431,6 +448,24 @@ $total_notif = $actionable_notif_count + count($notif_izin_info);
                                         <i class="fa-regular fa-calendar mr-1"></i>
                                         <?php echo formatRentangTanggal($np['tanggal_mulai'], $np['tanggal_selesai']); ?>
                                         &middot; <?php echo (int)$np['jumlah_hari_kerja']; ?> hari kerja
+                                    </p>
+                                </a>
+                                <?php endforeach; endif; ?>
+
+                                <?php if ($pending_lembur_count > 0): ?>
+                                <div class="px-4 py-2 bg-slate-50 dark:bg-slate-800/50 border-y border-slate-100 dark:border-slate-700/50 sticky top-0 z-10 backdrop-blur-sm">
+                                    <p class="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest">Pengajuan Lembur Menunggu Review</p>
+                                </div>
+                                <?php foreach ($notif_pengajuan_lembur as $nl): ?>
+                                <a href="kelola_pengajuan_lembur.php?status=Pending" class="block p-4 border-b border-slate-100 dark:border-slate-700/50 hover:bg-slate-50 dark:hover:bg-slate-800/30 transition-colors">
+                                    <div class="flex items-center justify-between gap-2 mb-1">
+                                        <p class="text-sm font-bold text-slate-800 dark:text-white truncate"><?php echo htmlspecialchars($nl['nama_karyawan']); ?></p>
+                                        <span class="text-[10px] px-2 py-0.5 rounded-full border font-bold shrink-0 bg-purple-100 text-purple-700 border-purple-200 dark:bg-purple-900/30 dark:text-purple-400 dark:border-purple-800/50">Lembur</span>
+                                    </div>
+                                    <p class="text-xs text-slate-600 dark:text-slate-300 line-clamp-2"><?php echo htmlspecialchars($nl['keperluan']); ?></p>
+                                    <p class="text-[10px] font-medium text-slate-400 mt-2">
+                                        <i class="fa-regular fa-calendar mr-1"></i>
+                                        <?php echo formatRentangTanggal($nl['tanggal_mulai'], $nl['tanggal_selesai']); ?>
                                     </p>
                                 </a>
                                 <?php endforeach; endif; ?>
